@@ -227,17 +227,60 @@ The script uses a sophisticated three-stage AI pipeline:
 
 ## Troubleshooting
 
-### GPU Not Being Used
+### GPU Not Being Used (NVIDIA Card Present)
 
-Check if CUDA is available:
+If you have an NVIDIA GPU but get "CUDA requested but PyTorch cannot find CUDA":
+
+**Quick Diagnosis:**
 ```bash
-python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+python check_cuda.py
 ```
 
-If False:
-- Install CUDA-enabled PyTorch: https://pytorch.org/get-started/locally/
-- Verify NVIDIA drivers are installed
-- Use `--device cpu` as fallback
+This script will check:
+- PyTorch version (CPU-only vs CUDA-enabled)
+- CUDA toolkit installation
+- NVIDIA drivers
+- GPU availability
+
+**Most Common Issue: CPU-Only PyTorch**
+
+Check your PyTorch version:
+```bash
+python -c "import torch; print(torch.__version__)"
+```
+
+If you see `cpu` in the version (e.g., `2.0.0+cpu`), you have the CPU-only build.
+
+**Fix: Install CUDA-enabled PyTorch**
+
+1. Check your CUDA version:
+   ```bash
+   nvcc --version
+   ```
+
+2. Install PyTorch for your CUDA version:
+   ```bash
+   # For CUDA 11.8
+   pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+   # For CUDA 12.1
+   pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+   ```
+
+3. Verify installation:
+   ```bash
+   python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')"
+   ```
+
+**If CUDA toolkit is not installed:**
+- Download from: https://developer.nvidia.com/cuda-downloads
+- Make sure to match PyTorch CUDA version
+
+**If NVIDIA drivers are not installed:**
+- Download from: https://www.nvidia.com/Download/index.aspx
+- Restart after installation
+
+See full guide: https://pytorch.org/get-started/locally/
 
 ### Low Detection Rate
 - Try lowering the `--confidence` threshold (default: 0.5)

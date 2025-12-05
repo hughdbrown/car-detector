@@ -97,7 +97,13 @@ class CarModelClassifier:
             # Determine device
             if force_device:
                 if force_device == 'cuda' and not torch.cuda.is_available():
-                    click.echo("Warning: CUDA requested but not available, using CPU", err=True)
+                    click.echo("Warning: CUDA requested but PyTorch cannot find CUDA", err=True)
+                    click.echo("  Possible causes:", err=True)
+                    click.echo("  - PyTorch CPU-only version installed (reinstall with CUDA support)", err=True)
+                    click.echo("  - CUDA toolkit not installed", err=True)
+                    click.echo("  - NVIDIA drivers not installed or outdated", err=True)
+                    click.echo("  See: https://pytorch.org/get-started/locally/", err=True)
+                    click.echo("  Falling back to CPU...", err=True)
                     CarModelClassifier._device = torch.device('cpu')
                 else:
                     CarModelClassifier._device = torch.device(force_device)
@@ -105,6 +111,11 @@ class CarModelClassifier:
                 CarModelClassifier._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
             click.echo(f"Using device: {CarModelClassifier._device}", err=True)
+
+            # Show CUDA info if available
+            if CarModelClassifier._device.type == 'cuda':
+                click.echo(f"  GPU: {torch.cuda.get_device_name(0)}", err=True)
+                click.echo(f"  CUDA version: {torch.version.cuda}", err=True)
 
             # Load pretrained EfficientNet-B0 model
             # Note: In production, you would load a model fine-tuned on Stanford Cars dataset

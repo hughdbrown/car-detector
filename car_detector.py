@@ -84,11 +84,27 @@ class CarModelClassifier:
     _transform = None
     _device = None
 
-    def __init__(self):
-        """Initialize the car model classifier"""
+    def __init__(self, force_device: Optional[str] = None):
+        """
+        Initialize the car model classifier
+
+        Args:
+            force_device: Force device to 'cpu' or 'cuda', or None for auto-detect
+        """
         if CarModelClassifier._model is None:
             click.echo("Loading EfficientNet model for car classification...", err=True)
-            CarModelClassifier._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+            # Determine device
+            if force_device:
+                if force_device == 'cuda' and not torch.cuda.is_available():
+                    click.echo("Warning: CUDA requested but not available, using CPU", err=True)
+                    CarModelClassifier._device = torch.device('cpu')
+                else:
+                    CarModelClassifier._device = torch.device(force_device)
+            else:
+                CarModelClassifier._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+            click.echo(f"Using device: {CarModelClassifier._device}", err=True)
 
             # Load pretrained EfficientNet-B0 model
             # Note: In production, you would load a model fine-tuned on Stanford Cars dataset
@@ -155,16 +171,31 @@ class LicensePlateRecognizer:
     _alpr_available = None
     _use_alpr = False
 
-    def __init__(self):
-        """Initialize the license plate recognizer"""
+    def __init__(self, force_device: Optional[str] = None):
+        """
+        Initialize the license plate recognizer
+
+        Args:
+            force_device: Force device to 'cpu' or 'cuda', or None for auto-detect
+        """
         # Initialize EasyOCR (primary method)
         if LicensePlateRecognizer._ocr_reader is None:
             click.echo("Loading EasyOCR for license plate recognition...", err=True)
+
+            # Determine GPU usage
+            if force_device:
+                use_gpu = (force_device == 'cuda' and torch.cuda.is_available())
+                if force_device == 'cuda' and not torch.cuda.is_available():
+                    click.echo("Warning: CUDA requested but not available for EasyOCR", err=True)
+            else:
+                use_gpu = torch.cuda.is_available()
+
             LicensePlateRecognizer._ocr_reader = easyocr.Reader(
                 ['en'],
-                gpu=torch.cuda.is_available()
+                gpu=use_gpu
             )
-            click.echo("Using EasyOCR for license plate recognition", err=True)
+            device_name = "GPU" if use_gpu else "CPU"
+            click.echo(f"Using EasyOCR with {device_name} for license plate recognition", err=True)
 
         # Check if OpenALPR is also available (optional enhancement)
         if LicensePlateRecognizer._alpr_available is None:
@@ -306,7 +337,14 @@ class CarDetector:
     _car_classifier = None
     _plate_recognizer = None
 
-    def __init__(self, video_path: str):
+    def __init__(self, video_path: str, device: Optional[str] = None):
+        """
+        Initialize car detector
+
+        Args:
+            video_path: Path to video file
+            device: Force device to 'cpu' or 'cuda', or None for auto-detect
+        """
         self.video_path = Path(video_path)
         if not self.video_path.exists():
             raise FileNotFoundError(f"Video file not found: {video_path}")
@@ -318,11 +356,11 @@ class CarDetector:
 
         # Initialize car model classifier (shared across instances)
         if CarDetector._car_classifier is None:
-            CarDetector._car_classifier = CarModelClassifier()
+            CarDetector._car_classifier = CarModelClassifier(force_device=device)
 
         # Initialize license plate recognizer (shared across instances)
         if CarDetector._plate_recognizer is None:
-            CarDetector._plate_recognizer = LicensePlateRecognizer()
+            CarDetector._plate_recognizer = LicensePlateRecognizer(force_device=device)
 
         self.yolo_model = CarDetector._yolo_model
         self.car_classifier = CarDetector._car_classifier
@@ -510,19 +548,20 @@ class CarDetector:
         return detections
 
 
-def process_video_file(video_path: str, confidence: float) -> bool:
+def process_video_file(video_path: str, confidence: float, device: Optional[str] = None) -> bool:
     """
     Process a single video file and output results
 
     Args:
         video_path: Path to the video file
         confidence: Detection confidence threshold
+        device: Force device to 'cpu' or 'cuda', or None for auto-detect
 
     Returns:
         True if processing succeeded, False otherwise
     """
     try:
-        detector = CarDetector(video_path)
+        detector = CarDetector(video_path, device=device)
         duration = detector.get_video_duration()
 
         # Output file header
@@ -602,7 +641,14 @@ def expand_glob_patterns(patterns: List[str]) -> List[str]:
     is_flag=True,
     help='Enable debug output showing detection details'
 )
-def main(video_paths: tuple[str, ...], confidence: float, debug: bool) -> None:
+@click.option(
+    '--device',
+    type=click.Choice(['auto', 'cpu', 'cuda'], case_sensitive=False),
+    default='auto',
+    show_default=True,
+    help='Device for ML processing (auto=detect GPU, cpu=force CPU, cuda=force GPU)'
+)
+def main(video_paths: tuple[str, ...], confidence: float, debug: bool, device: str) -> None:
     """Detect Toyota Sienna and Hyundai Ioniq 6 in iPhone videos.
 
     Supports wildcards like *.mov for batch processing multiple videos.
@@ -614,10 +660,15 @@ def main(video_paths: tuple[str, ...], confidence: float, debug: bool) -> None:
         ./car_detector.py *.mov --confidence 0.6
 
         ./car_detector.py videos/*.mp4 --debug
+
+        ./car_detector.py video.mov --device cpu
     """
     # Store debug mode globally
     import builtins
     builtins.DEBUG_MODE = debug
+
+    # Convert device selection
+    device_param = None if device == 'auto' else device
     # Expand glob patterns
     video_files = expand_glob_patterns(list(video_paths))
 
@@ -630,7 +681,7 @@ def main(video_paths: tuple[str, ...], confidence: float, debug: bool) -> None:
     # Process each video file
     success_count = 0
     for video_file in video_files:
-        if process_video_file(video_file, confidence):
+        if process_video_file(video_file, confidence, device=device_param):
             success_count += 1
 
     click.echo(f"\n{'='*70}")
